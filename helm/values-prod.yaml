@@ -1,4 +1,3 @@
-# Production environment overrides
 replicaCount: 3
 
 autoscaling:
@@ -24,5 +23,3 @@ ingress:
         - path: /
           pathType: ImplementationSpecific
   tls: []
-
-

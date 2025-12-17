@@ -1,8 +1,3 @@
-{{- /*
-NetworkPolicy for frontend pods:
- - Allow ingress from ingress-nginx namespace
- - Allow egress for DNS and external API calls
-*/ -}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -25,7 +20,6 @@ spec:
         - protocol: TCP
           port: {{ .Values.service.port }}
   egress:
-    # Allow DNS (UDP and TCP)
     - to:
         - namespaceSelector:
             matchLabels:
@@ -38,7 +32,6 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Allow external API calls (for backend communication)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -51,4 +44,3 @@ spec:
           port: 443
         - protocol: TCP
           port: 80
-
