@@ -17,7 +17,7 @@ resources:
 
 ingress:
   enabled: true
-  className: "nginx"
+  className: "alb"
   hosts:
     - host: frontend.test
       paths:
