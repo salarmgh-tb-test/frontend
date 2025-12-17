@@ -1,0 +1,28 @@
+# Production environment overrides
+replicaCount: 3
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+  limits:
+    cpu: "750m"
+    memory: "512Mi"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: frontend.test
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+
+
