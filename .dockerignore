@@ -1,0 +1,50 @@
+#
+# Docker build context ignore file for frontend (React / Vite app)
+#
+
+# Git & VCS
+.git
+.gitignore
+.gitattributes
+
+# Dependencies
+node_modules
+npm-debug.log
+yarn.lock
+pnpm-lock.yaml
+
+# Build output (will be generated during build)
+dist
+build
+
+# IDE / editor
+.idea
+.vscode
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs & temp
+*.log
+tmp
+.cache
+
+# Docker-related
+Dockerfile*
+.dockerignore
+
+# Environment files (if any)
+.env.local
+.env.*.local
+
+# Testing
+coverage
+.nyc_output
+
+# Documentation
+README.md
+*.md
+

@@ -1,0 +1,161 @@
+name: Deploy Frontend
+
+on:
+  push:
+    tags:
+      - "v*-alpha*"
+      - "v*-rc*"
+      - "v*"
+
+env:
+  AWS_REGION: eu-north-1
+  ECR_REPOSITORY: frontend
+  IMAGE_NAME: frontend
+
+jobs:
+  initialize:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.detect.outputs.environment }}
+      values-file: ${{ steps.detect.outputs.values-file }}
+      namespace: ${{ steps.detect.outputs.namespace }}
+      tag: ${{ steps.detect.outputs.tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect environment from tag
+        id: detect
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "Tag: $TAG"
+
+          # Namespace (cluster already created by Terraform)
+          echo "namespace=tradebytes" >> $GITHUB_OUTPUT
+
+          # v1.0.0-alpha*
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha ]]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "values-file=values-dev.yaml" >> $GITHUB_OUTPUT
+          # v1.0.0-rc*
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "values-file=values-staging.yaml" >> $GITHUB_OUTPUT
+          # v1.0.0 (no suffix) -> prod
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "values-file=values-prod.yaml" >> $GITHUB_OUTPUT
+          else
+            echo "Unknown tag format: $TAG"
+            echo "Expected: v1.0.0-alpha, v1.0.0-rc, or v1.0.0"
+            exit 1
+          fi
+
+  build:
+    needs: initialize
+    runs-on: ubuntu-latest
+    if: needs.initialize.outputs.environment != ''
+    environment:
+      name: ${{ needs.initialize.outputs.environment == 'prod' && 'production' || needs.initialize.outputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get ECR registry URL
+        id: ecr
+        run: |
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          echo "registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
+
+      - name: Create ECR repository if it doesn't exist
+        run: |
+          aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --region ${{ env.AWS_REGION }} || \
+          aws ecr create-repository \
+            --repository-name ${{ env.ECR_REPOSITORY }} \
+            --region ${{ env.AWS_REGION }} \
+            --image-scanning-configuration scanOnPush=true \
+            --image-tag-mutability MUTABLE \
+            --tags Key=ManagedBy,Value=github-actions
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ needs.initialize.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: [initialize, build]
+    runs-on: ubuntu-latest
+    if: needs.initialize.outputs.environment != ''
+    environment:
+      name: ${{ needs.initialize.outputs.environment == 'prod' && 'production' || needs.initialize.outputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: "latest"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: "latest"
+
+      - name: Get ECR registry URL
+        id: ecr
+        run: |
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          echo "registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
+
+      - name: Configure Kubernetes
+        run: |
+          aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+      - name: Deploy frontend to ${{ needs.initialize.outputs.environment }}
+        run: |
+          TAG="${{ needs.initialize.outputs.tag }}"
+          ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
+
+          echo "Deploying frontend ${TAG} to ${{ needs.initialize.outputs.environment }}"
+          echo "Using values file: ${{ needs.initialize.outputs.values-file }}"
+          echo "Target namespace: ${{ needs.initialize.outputs.namespace }}"
+
+          helm upgrade --install \
+            -n ${{ needs.initialize.outputs.namespace }} \
+            frontend \
+            ./helm \
+            -f ./helm/${{ needs.initialize.outputs.values-file }} \
+            --set image.repository=${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }} \
+            --set image.tag=${TAG} \
+            --wait \
+            --timeout 10m
+
+
