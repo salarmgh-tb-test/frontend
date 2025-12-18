@@ -7,7 +7,7 @@ function App() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    fetch('http://backend.test/')
+    fetch(import.meta.env.VITE_API_URL || 'http://backend.test/')
       .then(response => {
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`)
