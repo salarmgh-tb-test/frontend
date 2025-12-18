@@ -28,5 +28,5 @@ ingress:
     - host: dev-frontend.test
       paths:
         - path: /
-          pathType: ImplementationSpecific
+          pathType: Prefix
   tls: []

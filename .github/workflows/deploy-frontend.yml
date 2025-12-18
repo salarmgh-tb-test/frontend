@@ -20,6 +20,7 @@ jobs:
       values-file: ${{ steps.detect.outputs.values-file }}
       namespace: ${{ steps.detect.outputs.namespace }}
       tag: ${{ steps.detect.outputs.tag }}
+      backend-url: ${{ steps.detect.outputs.backend-url }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -38,14 +39,17 @@ jobs:
           if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha ]]; then
             echo "environment=dev" >> $GITHUB_OUTPUT
             echo "values-file=values-dev.yaml" >> $GITHUB_OUTPUT
+            echo "backend-url=http://dev-backend.test/" >> $GITHUB_OUTPUT
           # v1.0.0-rc*
           elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc ]]; then
             echo "environment=staging" >> $GITHUB_OUTPUT
             echo "values-file=values-staging.yaml" >> $GITHUB_OUTPUT
+            echo "backend-url=http://staging-backend.test/" >> $GITHUB_OUTPUT
           # v1.0.0 (no suffix) -> prod
           elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
             echo "values-file=values-prod.yaml" >> $GITHUB_OUTPUT
+            echo "backend-url=http://backend.test/" >> $GITHUB_OUTPUT
           else
             echo "Unknown tag format: $TAG"
             echo "Expected: v1.0.0-alpha, v1.0.0-rc, or v1.0.0"
@@ -98,6 +102,8 @@ jobs:
           context: .
           push: true
           tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ needs.initialize.outputs.tag }}
+          build-args: |
+            VITE_API_URL=${{ needs.initialize.outputs.backend-url }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
