@@ -101,8 +101,66 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  deploy:
+  test:
     needs: [initialize, build]
+    runs-on: ubuntu-latest
+    if: needs.initialize.outputs.environment != ''
+    environment:
+      name: ${{ needs.initialize.outputs.environment == 'prod' && 'production' || needs.initialize.outputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get ECR registry URL
+        id: ecr
+        run: |
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          echo "registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Run frontend container test
+        run: |
+          set -euo pipefail
+
+          TAG="${{ needs.initialize.outputs.tag }}"
+          ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
+
+          echo "Testing frontend image: ${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:${TAG}"
+
+          # Run container and test health endpoint
+          docker run -d --name frontend-test -p 8080:80 \
+            "${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:${TAG}"
+
+          # Wait for container to start
+          sleep 5
+
+          # Test that nginx serves content with 200 status
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/)
+
+          if [ "$RESPONSE" != "200" ]; then
+            echo "Frontend health check failed with status: $RESPONSE"
+            docker logs frontend-test
+            docker rm -f frontend-test
+            exit 1
+          fi
+
+          echo "Frontend test passed! HTTP status: $RESPONSE"
+
+          # Clean up
+          docker rm -f frontend-test
+
+  deploy:
+    needs: [initialize, test]
     runs-on: ubuntu-latest
     if: needs.initialize.outputs.environment != ''
     environment:
